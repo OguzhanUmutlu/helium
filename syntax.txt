@@ -1,0 +1,273 @@
+# Inline comments
+
+"
+Multi-line comments
+"
+
+
+
+### VARIABLES ###
+
+a = 10
+
+a := 10 # redefines the variable in the scope
+
+print(a)
+
+a++
+a--
+a += 10
+a -= 10
+a *= 10
+a /= 10
+a &&= 10
+a ||= 10
+a ??= 10
+a &= 10
+a |= 10
+a ^= 10
+a >>>= 10
+a <<<= 10
+a >>= 10
+a <<= 10
+++a
+--a
+
+
+
+### EXPRESSION SYNTAX ###
+
+a = 5 +
+ 7 + 12 + (b = 10) - f(1) +
+ ("nice" if is_nice else "not_nice")
+
+
+
+### OPERATORS ###
+
+Bitwise:
+- Bitwise not (~)
+- And (&)
+- Or (|)
+- Xor (^)
+- Unsigned right shift (>>>)
+- Unsigned left shift (<<<)
+- Right shift (>>)
+- Left shift (<<)
+
+Conditionals:
+- Not (!)
+- And (&&)
+- Or (||)
+- Nullish or (??)
+- Equal to (==)
+- Not equal to (!=)
+- Greater than (>)
+- Less than (<)
+- Greater than or equal to (>=)
+- Less than or equal to (<=)
+
+Maths:
+- Addition (+)
+- Subtraction (-)
+- Multiplication (*)
+- Division (/)
+- Exponentiation (**)
+
+
+
+### SPECIAL VALUES ###
+
+a = True
+a = False
+a = None
+a = NaN
+a = Infinity
+a = -Infinity
+
+
+
+### MACROS ###
+
+$myMacro 10
+
+print($myMacro) # prints the number 10
+
+# default values for the arguments require a parenthesis like: b (anything here)
+# variadic arguments are used as "join" functions, it will join the arguments with the thing inside it
+$myFuncMacro(a, b (default val), ...c) print(a, f"{b}", c(, ))
+
+$myFuncMacro(10, , thing1, thing2)
+# gets converted to:
+print(10, "default val", "thing1", "thing2")
+
+
+
+### IF STATEMENTS ###
+
+if a < 10 then
+ a += 2
+end
+
+if a < 10 then
+ a += 2
+else if a > 10 then
+ a -= 2
+else then
+ a = 2
+end
+
+
+
+### LOOPS ###
+
+for i = 0, i < 10, i++ do
+ print("hi")
+
+ break
+
+ continue
+end
+
+for key, value in some_iterable do
+ break
+ continue
+end
+
+for value in some_iterable do
+ break
+ continue
+end
+
+for x times do
+ break
+ continue
+end
+
+loop do
+  break
+  continue
+end
+
+while a < 10 do
+ break
+ continue
+end
+
+until a < 10 do
+ break
+ continue
+end
+
+
+
+### RANGES ###
+
+myRange = 1..5 # does range(1, 5, 1)
+myRange = 2.. # does range(2, Infinity, 1)
+myRange = ..5 # does range(5, -Infinity, -1)
+
+for value in 1..5 do
+ print(value) # 1 2 3 4 5
+end
+
+
+
+### METHODS ###
+
+function myFunction(a, b = 10, ...c)
+ print(a, b, c)
+
+ return 10
+end
+
+myFunction(10, 20, 30, 40)
+myFunction(a=10, b=10, 20, 40, 80)
+
+# yield example
+function range(amount)
+ for i in amount do
+  yield i
+ end
+end
+
+# anonymous functions
+a = function()
+ print("I'm an anonymous function!")
+end
+
+
+
+### PROMISES ###
+
+promise = Promise(function(resolve, reject)
+ resolve(42)
+ if SomethingIsUp do
+
+ end
+end)
+
+promise.then(function() do
+ print("hello, world")
+end).catch(function() do
+ print("oh no!")
+end)
+
+
+
+### CLASSES ###
+
+class MyClass:
+ a = 20
+
+ MyClass()
+  this.a = 10
+  this.someMethod()
+ end
+
+ someMethod()
+  this.b = 20
+ end
+end
+
+class MyOtherClass extends MyClass:
+ MyOtherClass()
+  print("I'm created!")
+ end
+end
+
+a = MyOtherClass()
+
+a.someMethod()
+
+
+
+### SWITCH AND MATCH ###
+
+switch x
+ if 10 do
+  print("woah it's 10!")
+ end
+ if 20 do
+  print("good enough")
+ end
+ default do
+  print("it's not ten? :(")
+ end
+end
+
+y = match x
+ if 10: 20 + x
+ if 20: 40 + x
+ default: 80 - x
+end
+
+
+
+### OBJECTS AND ARRAYS ###
+
+a = { a: 10 }
+
+a.b[0]["a"].0.a(10)
+
+a = [10]
