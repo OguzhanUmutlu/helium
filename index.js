@@ -3,13 +3,18 @@ const {parseGroups} = require("./src/parser");
 const {interpret} = require("./src/interpreter");
 
 const code = `
-y = {x: 10}
-print(y.x+=10 * 2)
-print(y)
+a = [1,2,3,4]
+
+a[0] = 10
 `;
 
 const tokens = tokenize(code);
 const groups = groupTokens(code, tokens);
+console.log(groups)
 const statements = parseGroups(code, groups);
 
-interpret(code, statements);
+interpret(code, statements, {
+    type: "main",
+    parent: null,
+    variables: {}
+});

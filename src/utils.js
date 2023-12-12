@@ -47,52 +47,89 @@ const Color = {
     whiteBright: text => `\x1B[97m${text}\x1B[39m`
 };
 
+const numberCache = {};
+const stringCache = {};
 
 const O = {
-    N: value => ({type: "number", value}),
-    S: value => ({type: "string", value}),
+    N: value => numberCache[value] ??= {type: "number", value},
+    S: value => stringCache[value] ??= {type: "string", value},
     I: value => ({type: "iterable", value}),
     OP: value => ({type: "operator", value}),
     OBJ: value => ({type: "object", value}),
-    F: statements => ({type: "function", native: false, statements}),
+    F: (arguments, statements, scope) => ({type: "function", native: false, arguments, statements, scope}),
     F_N: call => ({type: "function", native: true, call}),
     None: {type: "none"},
-    True: {type: "true"},
-    False: {type: "false"},
+    True: {type: "boolean", value: true},
+    False: {type: "boolean", value: false},
 };
+
+function iterableToStr(map, v, dots) {
+    if (v.value.length === 0) return "[]";
+    const scanned = [v];
+    const arr = v.value; // Array.from({length: v.value.length}, (_, i) => v.value[i]);
+    return "[" + arr.map(i => {
+        const str = scanned.includes(i)
+            ? (i.type === "iterable" ? "[" + dots + "]" : "{" + dots + "}")
+            : map[i.type](i, true);
+        if (i.type === "object" || i.type === "iterable") scanned.push(i);
+        return str;
+    }).join(", ") + "]"
+}
+
+function objToStr(map, v, dots) {
+    const keys = Object.keys(v.value);
+    if (keys.length === 0) return "{}";
+    const scanned = [v];
+    return "{" + keys.map(i => {
+        const l = v.value[i];
+        const str = map.string({value: i}, true) + ": " + (
+            scanned.includes(l)
+                ? (l.type === "iterable" ? "[" + dots + "]" : "{" + dots + "}")
+                : map[l.type](l)
+        );
+        if (l.type === "object" || l.type === "iterable") scanned.push(l);
+        return str;
+    }).join(", ") + "}";
+}
 
 const ToStringMap = {
     number: v => v.value.toString(),
     string: (v, json) => json ? JSON.stringify(v.value) : v.value,
     function: v => v.native ? "<native function>" : "<function>",
-    iterable: v => {
-        const arr = Array.from({length: v.value.length}, (_, i) => v.value[i]);
-        return "[" + arr.map(i => ToStringMap[i.type](i, true)).join(", ") + "]"
-    },
-    object: v => "{" + Object.keys(v.value).map(i => JSON.stringify(i) + ": " + ToStringMap[v.value[i].type](v.value[i])).join(", ") + "}",
+    iterable: v => iterableToStr(ToStringMap, v, "..."),
+    object: v => objToStr(ToStringMap, v, "..."),
     none: () => "None",
-    true: () => "True",
-    false: () => "False",
+    boolean: v => v.value ? "True" : "False",
 };
 
 const ToColorfulStringMap = {
     number: v => Color.yellow(v.value.toString()),
     string: (v, json) => json ? Color.green(JSON.stringify(v.value)) : v.value,
     function: v => Color.blue(v.native ? "<native function>" : "<function>"),
-    iterable(v) {
-        if (v.value.length === 0) return "[]";
-        const arr = Array.from({length: v.value.length}, (_, i) => v.value[i]);
-        return "[ " + arr.map(i => ToColorfulStringMap[i.type](i, true)).join(", ") + " ]";
-    },
-    object(v) {
-        const keys = Object.keys(v.value);
-        if (keys.length === 0) return "{}";
-        return "{ " + keys.map(i => Color.green(JSON.stringify(i)) + ": " + ToColorfulStringMap[v.value[i].type](v.value[i])).join(", ") + " }"
-    },
+    iterable: v => iterableToStr(ToColorfulStringMap, v, Color.magenta("...")),
+    object: v => objToStr(ToColorfulStringMap, v, Color.magenta("...")),
     none: () => Color.blackBright("None"),
-    true: () => Color.blackBright("True"),
-    false: () => Color.blackBright("False"),
+    boolean: v => Color.yellow(v.value ? "True" : "False"),
 };
+
+// Turns token to a boolean
+function tokenToBool(token) {
+    if (token.type === "number") return token.value !== 0;
+    if (token.type === "string") return token.value.length > 0;
+    if (token.type === "none") return false;
+    if (token.type === "boolean") return token.value;
+    return true;
+}
+
+// Returns if the token is an iterable
+function isIterable(token) {
+    return token.type === "iterable" || token.type === "string";
+}
+
+// Returns the iterator contents
+function getIteratorContents(it) {
+    return it.type === "string" ? it.value.split("").map(i => O.S(i)) : it.value;
+}
 
 // Finds end of the expression
 function findEOE(code, tokens, index) {
@@ -216,9 +253,26 @@ function splitToCommas(tokens) {
 function findVariable(scope, name) {
     let current = scope;
     while (!current.variables[name]) {
-        if (!current.scope) return null;
+        if (!current.parent) return null;
+        current = current.parent;
     }
     return {scope: current, variable: current.variables[name]};
+}
+
+// Finds the closest parent scope that is a function
+function findFunctionParent(scope) {
+    let current = scope;
+    while (current.type !== "function") {
+        if (!current.parent) return null;
+        current = current.parent;
+    }
+    return current;
+}
+
+// Returns if the closest function scope has returned
+function isFunctionReturned(scope) {
+    const func = findFunctionParent(scope);
+    return func && func.returned;
 }
 
 // Sorts the tokens so that it is calculable
@@ -265,5 +319,10 @@ module.exports = {
     makeShun,
     O,
     ToStringMap,
-    ToColorfulStringMap
+    ToColorfulStringMap,
+    tokenToBool,
+    isIterable,
+    getIteratorContents,
+    findFunctionParent,
+    isFunctionReturned
 };

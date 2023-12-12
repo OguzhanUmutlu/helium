@@ -6,7 +6,7 @@ const {
     splitToCommas,
     O
 } = require("./utils");
-const SymbolRegex = /^([()\[\]{},:])/;
+const SymbolRegex = /^([()\[\]{},:]|\.{3}|\.)/;
 const OperatorRegex = /^(<{1,3}|>{1,3}|&{1,2}|\|{1,2}|[<>=!]=|\*\*|[+\-*/&|^!~]|\/\/|>=|<=)/;
 const SetRegex = /^(\+\+|--|(\*\*|[+\-*/:^&|]|\/\/|&&|\|{2}|\?\?|<{2,3}|>{2,3})?=)/;
 const StringStarterChars = [
@@ -16,7 +16,7 @@ const IgnoringChars = [
     "\n", "\t", "\r", "\f", " ", ";"
 ];
 const SymbolChars = [
-    ">", "<", "&", "|", "=", "!", "~", "*", "?", "+", "-", "*", "/", "^", "(", ")", "[", "]", "{", "}", ",", ":"
+    ">", "<", "&", "|", "=", "!", "~", "*", "?", "+", "-", "*", "/", "^", "(", ")", "[", "]", "{", "}", ",", ":", "."
 ];
 const IntegerChars = [
     "0", "1", "2", "3", "4", "5", "6", "7", "8", "9"
@@ -176,26 +176,15 @@ const TokenHandlers = [
         if (AllChars.includes(code[index])) return null;
         const startIndex = index;
         let str = "";
-        let hasDot = false;
-        let canBreak = false;
         for (; index < code.length; index++) {
             const c = code[index];
-            if (IgnoringChars.includes(c)) {
-                canBreak = true;
-                continue;
-            }
             if (AllChars.includes(c)) break;
-            if (canBreak) {
-                if (c !== ".") break;
-                canBreak = false;
-            }
             str += c;
-            if (c === ".") hasDot = true;
         }
         tokens.push({
-            type: hasDot ? "prop" : "word",
+            type: "word",
             pos: mkPos(startIndex, index),
-            value: hasDot ? [...str.split(".")] : str
+            value: str
         });
         return index;
     }
@@ -286,24 +275,72 @@ function tokenize(code) {
 function checkSet(code, p) {
     for (let i = 0; i < p.children.length; i++) {
         const c = p.children[i];
-        if (c.type !== "set" || UnaryOperators.includes(c.value)) continue;
-        if (i === 0) throwSyntaxError(code, c.pos, "Expected a variable before a setter.");
-        const name = p.children[i - 1];
-        if (name.type !== "word" && name.type !== "prop") throwSyntaxError(code, name.pos, "Expected a variable before a setter.");
-        const eoe = findEOE(code, p.children, i + 1);
-        const got = p.children.slice(i + 1, eoe);
-        if (got.length < 1) {
-            throwSyntaxError(code, c.pos, "Expected an expression for the variable declaration statement.");
+        if (c.type === "set" && !UnaryOperators.includes(c.value)) {
+            if (i === 0) throwSyntaxError(code, c.pos, "Expected a variable before a setter.");
+            const name = p.children[i - 1];
+            if (name.type !== "word" && name.type !== "prop") throwSyntaxError(code, name.pos, "Expected a variable before a setter.");
+            const eoe = findEOE(code, p.children, i + 1);
+            const got = p.children.slice(i + 1, eoe);
+            if (got.length < 1) {
+                throwSyntaxError(code, c.pos, "Expected an expression for the variable declaration statement.");
+            }
+            p.children.splice(i - 1, eoe - i + 1, {
+                type: "set_variable",
+                after: true,
+                pos: mkPos(name.pos.start, got.at(-1).pos.end),
+                name,
+                operator: c.value,
+                ready: makeShun(got)
+            });
+            i--;
+            continue;
         }
-        p.children.splice(i - 1, eoe - i + 1, {
-            type: "set_variable",
-            after: true,
-            pos: mkPos(name.pos.start, got.at(-1).pos.end),
-            name,
-            operator: c.value,
-            ready: makeShun(got)
-        });
-        i--;
+        if (c.type === "word" && c.value === "return") {
+            const eoe = findEOE(code, p.children, i + 1);
+            const got = p.children.slice(i + 1, eoe);
+            p.children.splice(i, eoe - i, {
+                type: "return",
+                pos: mkPos(c.pos.start, (got.at(-1) ?? c).pos.end),
+                ready: got.length ? makeShun(got) : null
+            });
+            continue;
+        }
+        if (c.type === "list") {
+            const last = p.children[i - 1];
+            if (last.type === "prop") {
+                last.value.push(c);
+                p.children.splice(i, 1);
+                i--;
+                continue;
+            } else if (last.type !== "symbol") {
+                p.children.splice(i - 1, 2, {
+                    type: "prop",
+                    pos: mkPos(last.pos.start, c.pos.end),
+                    value: [last, c]
+                });
+                continue;
+            }
+        }
+        if (c.type === "word") {
+            const last = p.children[i - 1];
+            const last2 = p.children[i - 2];
+            if (last && last.type === "symbol" && last.value === "." && last2 && last2.type !== "symbol") {
+                if (last2.type === "prop") {
+                    p.children.splice(i - 1, 2);
+                    i -= 2;
+                    last2.value.push(c.value);
+                    last2.pos = mkPos(last2.pos.start, c.pos.end);
+                } else {
+                    p.children.splice(i - 2, 3, {
+                        type: "prop",
+                        pos: mkPos(last2.pos.start, c.pos.end),
+                        value: [last2, c.value]
+                    });
+                    i -= 2;
+                }
+                continue;
+            }
+        }
     }
 }
 
@@ -331,8 +368,15 @@ function groupTokens(code, tokens) {
                 delete p.parent;
                 delete p.closer;
                 p.pos = mkPos(p.pos, token.pos.end);
+                const last2 = parent.children.at(-2);
                 const last = parent.children.at(-1);
-                const isFunctionCall = last && last.type === "word" && p.sym === "(";
+                const isFunctionDeclaration1 = p.sym === "(" && last && last.type === "word" && last.value === "function";
+                const isFunctionDeclaration2 = p.sym === "(" && last2 && last2.type === "word" && last2.value === "function";
+                const isFunctionDeclaration = isFunctionDeclaration1 || isFunctionDeclaration2;
+                const isFunctionCall = !isFunctionDeclaration
+                    && p.sym === "("
+                    && last
+                    && last.type === "word";
                 const children = p.children;
                 checkSet(code, p);
                 if (isFunctionCall) {
@@ -341,6 +385,7 @@ function groupTokens(code, tokens) {
                         type: "function_call",
                         name: last.value,
                         pos: mkPos(last.pos.start, p.pos.end),
+                        children: split,
                         ready: split.map(makeShun)
                     });
                 } else if (p.sym === "[") {
@@ -350,18 +395,23 @@ function groupTokens(code, tokens) {
                         pos: p.pos,
                         ready: split.map(makeShun)
                     };
-                    const last = parent.children.at(-1);
-                    if (last && (last.type === "word" || last.type === "prop")) {
-                        if (last.type === "word") {
-                            last.type = "prop";
-                            last.value = [last.value];
+                    /*const last = parent.children.at(-1);
+                    if (last && last.type !== "symbol" && (last.type !== "word" || !SpecialWords.includes(last.value))) {
+                        if (last.type !== "prop") {
+                            parent.children.splice(-1, 1, {
+                                type: "prop",
+                                pos: mkPos(last.pos.start, p.pos.end),
+                                value: [last, ls]
+                            });
+                        } else {
+                            last.value.push(ls);
+                            if (ls.ready.length !== 1) {
+                                throwSyntaxError(code, ls.pos, "Expected a single expression inside the object pointer.");
+                            }
+                            last.pos.end = ls.pos.end;
                         }
-                        last.value.push(ls);
-                        if (ls.ready.length !== 1) {
-                            throwSyntaxError(code, ls.pos, "Expected a single expression inside the object pointer.");
-                        }
-                        last.pos.end = ls.pos.end;
-                    } else parent.children.push(ls);
+                    } else*/
+                    parent.children.push(ls);
                 } else if (p.sym === "{") {
                     // {x: 30, [x]: 50, 5: "hello": 25}
                     const split = splitToCommas(children);
@@ -369,6 +419,19 @@ function groupTokens(code, tokens) {
                     for (let i = 0; i < split.length; i++) {
                         const s = split[i];
                         // it will always have a first element because that's just how splitToCommas works
+                        if (
+                            s.length === 2
+                            && s[0].type === "symbol"
+                            && s[0].value === "..."
+                        ) {
+                            ready.push({
+                                isSpread: true,
+                                isPointer: false,
+                                key: null,
+                                ready: [s[1]]
+                            });
+                            continue;
+                        }
                         if (s.length < 3) throwSyntaxError(code, s[0].pos, "Expected at least 3 tokens for the property.");
                         if (!["word", "number", "list"].includes(s[0].type)) {
                             throwSyntaxError(code, s[0].pos, "Expected a string, number or a pointer.");
@@ -380,6 +443,7 @@ function groupTokens(code, tokens) {
                             throwSyntaxError(code, s[1].pos, "Expected a semicolon.");
                         }
                         ready.push({
+                            isSpread: false,
                             isPointer: s[0].type === "list",
                             key: s[0],
                             ready: s.slice(2)
@@ -392,10 +456,9 @@ function groupTokens(code, tokens) {
                     });
                 } else {
                     p.ready = makeShun(children);
-                    delete p.children;
                     parent.children.push(p);
                 }
-                if (p.sym === "(" && children.length % 2 !== 1 && (children.length !== 0 || !isFunctionCall)) {
+                if (!isFunctionCall && !isFunctionDeclaration && p.sym === "(" && children.length % 2 !== 1 && children.length !== 0) {
                     throwSyntaxError(code, p.pos, "Invalid expression.");
                 }
                 continue;
